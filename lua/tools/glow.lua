@@ -31,8 +31,11 @@ function M.render(src)
   p.width = vim.api.nvim_win_get_width(p.win)
   local width = math.max(20, p.width - 2)
   local style = vim.o.background == "light" and "light" or "dark"
+  -- Saves and resizes can start renders that end out of order. Only the newest one draws.
+  p.gen = (p.gen or 0) + 1
+  local gen = p.gen
   vim.system({ "glow", "-s", style, "-w", tostring(width), file }, { text = true }, vim.schedule_wrap(function(res)
-    if not valid_win(p) or previews[src] ~= p then
+    if not valid_win(p) or previews[src] ~= p or p.gen ~= gen then
       return
     end
     if res.code ~= 0 then
@@ -162,10 +165,14 @@ end
 -- git shows (tracked, or new and not ignored). It is outside every repo, so glow ignores
 -- nothing in it. Hard links keep the real modified times, and an edit changes the real file.
 local function mirror(dir)
-  local files = git(dir, "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.md", "*.markdown")
-  if not files then
+  -- -z: with no -z, git quotes names with non-ASCII bytes ("r\303\251sum\303\251.md").
+  local res = vim
+    .system({ "git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md", "*.markdown" }, { text = true })
+    :wait()
+  if res.code ~= 0 then
     return dir
   end
+  local files = vim.split(res.stdout or "", "\0", { plain = true, trimempty = true })
   local out = vim.fn.stdpath("cache") .. "/glow/" .. vim.fn.sha256(dir):sub(1, 12) .. "/" .. vim.fs.basename(dir)
   vim.fn.delete(out, "rf") -- only links: the real files are not touched
   vim.fn.mkdir(out, "p")
@@ -396,10 +403,13 @@ function M.view()
   pcall(vim.api.nvim_buf_set_name, buf, "glow://" .. vim.fn.fnamemodify(file, ":~:."))
 
   local wide = false
+  local gen = 0 -- only the newest render draws (resizes and `r`/`w` can overlap)
   local function render()
     if not (vim.api.nvim_win_is_valid(win) and vim.api.nvim_buf_is_valid(src)) then
       return
     end
+    gen = gen + 1
+    local mine = gen
     -- glow reads stdin with "-", so unsaved changes show and no temp file is needed.
     local text = table.concat(vim.api.nvim_buf_get_lines(src, 0, -1, false), "\n")
     local style = vim.o.background == "light" and "light" or "dark"
@@ -413,7 +423,7 @@ function M.view()
     end
     vim.system({ "glow", "-s", style, "-w", tostring(width), "-" }, { stdin = text, text = true,
       cwd = vim.fs.dirname(file) }, vim.schedule_wrap(function(res)
-      if not vim.api.nvim_buf_is_valid(buf) then
+      if not vim.api.nvim_buf_is_valid(buf) or mine ~= gen then
         return
       end
       if res.code ~= 0 then

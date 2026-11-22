@@ -482,6 +482,19 @@ local function op_target(op)
   return op.spec or op.sdk
 end
 
+-- Like op_target, but an op with no spec/SDK (fetch, S3, db, npm clients) opens its first call site.
+local function op_or_call(data, op)
+  local t = op_target(op)
+  if t then
+    return t
+  end
+  for _, c in ipairs(data.callsites) do
+    if c.op == op.id then
+      return c
+    end
+  end
+end
+
 local function current(root)
   local st = state[root]
   if not (st and st.data) then
@@ -604,7 +617,7 @@ function M.upstream()
   end
   local items = {}
   for _, op in pairs(st.data.ops) do
-    local t = op_target(op)
+    local t = op_or_call(st.data, op)
     if t then
       local users = vim.tbl_map(function(idx)
         return route_label(st.data.routes[idx])
@@ -832,6 +845,13 @@ local function newest_mtime(p)
       }) do
         if kind == "file" and WATCH_EXT[name:match("%.(%w+)$") or ""] then
           consider(base .. "/" .. name)
+        elseif kind == "directory" then
+          -- A delete or rename changes only the mtime of the parent folder, so a nested
+          -- delete also makes the index stale.
+          local leaf = vim.fs.basename(name)
+          if leaf ~= "node_modules" and leaf:sub(1, 1) ~= "." and not skip[base .. "/" .. name] then
+            consider(base .. "/" .. name)
+          end
         end
       end
     end

@@ -45,10 +45,12 @@ end
 
 -- Live worktrees of the repo at `dir`. The first porcelain entry is the main checkout.
 local function worktrees_of(dir, current)
-  local lines = git(dir, "worktree", "list", "--porcelain")
-  if not lines then
+  -- -z: NUL ends each field, so a path with a newline or other odd bytes parses as it is.
+  local res = vim.system({ "git", "-C", dir, "worktree", "list", "--porcelain", "-z" }, { text = true }):wait()
+  if res.code ~= 0 then
     return {}
   end
+  local lines = vim.split(res.stdout or "", "\0", { plain = true })
   local out = {}
   for i, wt in ipairs(M.parse_porcelain(lines)) do
     -- Prunable entries are stale admin records whose directory is already gone.
@@ -174,7 +176,9 @@ function M.diff_trunk()
     vim.notify("No origin/HEAD, origin/main or origin/master reachable from " .. cwd, vim.log.levels.WARN)
     return
   end
-  vim.cmd("DiffviewOpen " .. base .. "...HEAD")
+  -- --imply-local: the right side is the working tree, so uncommitted changes show and
+  -- LSP, gitsigns and edits work in it.
+  vim.cmd("DiffviewOpen --imply-local " .. base .. "...HEAD")
 end
 
 return M

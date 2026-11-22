@@ -24,7 +24,7 @@ This README describes only what this repo adds or changes. For the LazyVim defau
 | `:BffIndex` / `<leader>ri` | n | Rebuild the index of the current project. | `lua/tools/bff/init.lua` |
 | **Worktrees** | | | |
 | `:Worktrees` / `<leader>gW` | n | Show all git worktrees of the current repo and open the selected one in its own tab. | `lua/tools/worktree.lua` |
-| `<leader>gD` | n | Open a diff of the current worktree against the trunk (`origin/HEAD`, else `origin/main`, else `origin/master`). | `lua/tools/worktree.lua` |
+| `<leader>gD` | n | Open a diff of the current worktree against the trunk (`origin/HEAD`, else `origin/main`, else `origin/master`). The diff includes uncommitted changes, and the right side is the working-tree file, so you can edit it. | `lua/tools/worktree.lua` |
 | **Markdown** | | | |
 | `:Glow` / `<leader>cg` | n | Open the [glow](https://github.com/charmbracelet/glow) start screen full screen. It lists the Markdown files of the current worktree (the git root of the tab cwd). Use `/` to find a file. Needs the `glow` CLI (`brew install glow`). | `lua/tools/glow.lua` |
 | `q` (in the start screen) | t, n | Quit glow and close the window. | `lua/tools/glow.lua` |

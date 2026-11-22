@@ -246,9 +246,51 @@ const abs = (p) => path.join(root, p);
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
-const cfg = ts.readConfigFile(abs(project.tsconfig || "tsconfig.json"), ts.sys.readFile);
-const parsed = ts.parseJsonConfigFileContent(cfg.config, ts.sys, root);
-const program = ts.createProgram(parsed.fileNames, { ...parsed.options, noEmit: true });
+// A linked worktree outside the main checkout may have no node_modules. TypeScript's resolver
+// ignores NODE_PATH, so a missing `<worktree>/node_modules/...` path is read from the
+// NODE_PATH dirs instead (the nvim side puts the main checkout there). Source files stay
+// rooted in the worktree; only dependency lookups move.
+const ownModules = [...new Set([root, worktree].map((d) => path.join(d, "node_modules")))];
+const fallbackModules = (process.env.NODE_PATH || "")
+  .split(path.delimiter)
+  .filter(Boolean)
+  .map((d) => path.resolve(d))
+  .filter((d) => !ownModules.includes(d) && fs.existsSync(d));
+const missingOwn = ownModules.filter((d) => !fs.existsSync(d));
+function redirect(f) {
+  for (const own of missingOwn) {
+    if (f !== own && !f.startsWith(own + path.sep)) continue;
+    for (const fb of fallbackModules) {
+      const alt = fb + f.slice(own.length);
+      if (fs.existsSync(alt)) return alt;
+    }
+  }
+  return f;
+}
+const sys =
+  missingOwn.length && fallbackModules.length
+    ? {
+        ...ts.sys,
+        fileExists: (f) => ts.sys.fileExists(redirect(f)),
+        directoryExists: (d) => ts.sys.directoryExists(redirect(d)),
+        readFile: (f, enc) => ts.sys.readFile(redirect(f), enc),
+        realpath: ts.sys.realpath && ((f) => ts.sys.realpath(redirect(f))),
+      }
+    : ts.sys;
+
+// Relative paths in a tsconfig are relative to the tsconfig's own folder, not the project root.
+const tsconfigPath = abs(project.tsconfig || "tsconfig.json");
+const cfg = ts.readConfigFile(tsconfigPath, sys.readFile);
+const parsed = ts.parseJsonConfigFileContent(cfg.config, sys, path.dirname(tsconfigPath), undefined, tsconfigPath);
+const options = { ...parsed.options, noEmit: true };
+const host = ts.createCompilerHost(options);
+if (sys !== ts.sys) {
+  host.fileExists = sys.fileExists;
+  host.directoryExists = sys.directoryExists;
+  host.readFile = sys.readFile;
+  if (sys.realpath) host.realpath = sys.realpath;
+}
+const program = ts.createProgram(parsed.fileNames, options, host);
 const checker = program.getTypeChecker();
 
 const basePath = project.basePath || "";
@@ -544,7 +586,7 @@ const isRefExpr = (e) => ts.isIdentifier(e) || ts.isPropertyAccessExpression(e);
 // Express: `<router>.<verb>("/path", ...handlers)` and `<parent>.use("/prefix", router)`
 // ---------------------------------------------------------------------------
 const expressRoutes = []; // { method, sub, keys, receiver, handler, node, file, line }
-const mounts = []; // { parent: [keys], prefix, child: key }
+const mounts = []; // { parent: [keys], prefix, child: [keys] }
 const inlineOwners = new Map(); // function node -> synthetic node id
 
 const isExpressDecl = (decl) =>
@@ -578,14 +620,28 @@ function routerKeys(expr) {
   return keys;
 }
 
-function mountChildKey(arg) {
+// Keys of a mounted child router. `const mounted = makeRouter(); app.use("/api", mounted)` gives
+// the key of `mounted` (routes added to it directly) and of `makeRouter` (routes added inside
+// the factory). Two routers made by separate `express.Router()` calls keep separate keys.
+function mountChildKeys(arg) {
   if (isRefExpr(arg)) {
     const decl = resolve(arg);
-    return decl ? declKey(decl) : `text:${arg.getText()}`;
+    if (!decl) return [`text:${arg.getText()}`];
+    const keys = [declKey(decl)];
+    let init = ts.isVariableDeclaration(decl) ? decl.initializer : null;
+    while (init && (ts.isAwaitExpression(init) || ts.isParenthesizedExpression(init))) init = init.expression;
+    if (init && isRefExpr(init)) {
+      // `const alias = mounted`
+      keys.push(...mountChildKeys(init));
+    } else if (init && ts.isCallExpression(init) && isRefExpr(init.expression)) {
+      const f = resolve(init.expression);
+      if (f && isOwnSource(f.getSourceFile().fileName)) keys.push(declKey(f));
+    }
+    return keys;
   }
   if (ts.isCallExpression(arg) && isRefExpr(arg.expression)) {
     const decl = resolve(arg.expression);
-    return decl ? declKey(decl) : null;
+    return decl ? [declKey(decl)] : null;
   }
   return null;
 }
@@ -611,28 +667,42 @@ function expressCall(n, sf) {
   if (verb === "use") {
     const rest = sub !== null ? n.arguments.slice(1) : n.arguments;
     for (const a of rest) {
-      const child = mountChildKey(a);
+      const child = mountChildKeys(a);
       if (child) mounts.push({ parent: routerKeys(receiver), prefix: sub || "", child });
     }
     return;
   }
   if (n.arguments.length < 2 || sub === null) return; // `app.get("env")` is a settings getter
-  const handler = unwrapHandler(n.arguments[n.arguments.length - 1]);
   const method = verb.toUpperCase();
-  let node = null;
-  let handlerName = "inline";
-  if (handler && isFunctionLike(handler)) {
-    node = syntheticNode(sf, handler, `${method} ${sub}`);
-    inlineOwners.set(handler, node);
-  } else if (handler && isRefExpr(handler)) {
-    const hd = resolve(handler);
-    const callable = hd && isOwnSource(hd.getSourceFile().fileName) && asCallable(hd);
-    if (callable) {
-      node = ensureNode(callable);
-      handlerName = declName(callable);
-    } else handlerName = handler.getText();
+  // `router.get("/x", auth, [validate, load], asyncHandler(respond))`: each middleware and
+  // handler can call upstream, so all of them join the route graph.
+  const handlers = n.arguments
+    .slice(1)
+    .flatMap((a) => (ts.isArrayLiteralExpression(a) ? [...a.elements] : [a]))
+    .map(unwrapHandler)
+    .filter(Boolean);
+  const parts = []; // { node, name }
+  for (const handler of handlers) {
+    if (isFunctionLike(handler)) {
+      const id = syntheticNode(sf, handler, `${method} ${sub}`);
+      inlineOwners.set(handler, id);
+      parts.push({ node: id, name: "inline" });
+    } else if (isRefExpr(handler)) {
+      const hd = resolve(handler);
+      const callable = hd && isOwnSource(hd.getSourceFile().fileName) && asCallable(hd);
+      if (callable) parts.push({ node: ensureNode(callable), name: declName(callable) });
+      else parts.push({ node: null, name: handler.getText() });
+    }
   }
-  node ||= syntheticNode(sf, n, `${method} ${sub}`);
+  const linked = parts.filter((p) => p.node);
+  let node;
+  if (linked.length === 1) {
+    node = linked[0].node;
+  } else {
+    node = syntheticNode(sf, n, `${method} ${sub}`);
+    for (const p of linked) if (p.node !== node) (edges[node] ||= new Set()).add(p.node);
+  }
+  const handlerName = parts.length ? parts[parts.length - 1].name : "inline";
   expressRoutes.push({
     method,
     sub,
@@ -721,7 +791,7 @@ if (CLASS_DECORATORS.size) {
 function prefixesOf(keys, seen = new Set()) {
   const out = [];
   for (const m of mounts) {
-    if (!keys.includes(m.child) || seen.has(m)) continue;
+    if (!m.child.some((k) => keys.includes(k)) || seen.has(m)) continue;
     seen.add(m);
     const parents = prefixesOf(m.parent, seen);
     for (const p of parents.length ? parents : [""]) out.push(joinRoute(p, m.prefix));
@@ -775,16 +845,23 @@ for (const r of routes) {
   }
 }
 
-// Upstream reach per node (memoised DFS, cycle safe) — lets service defs list what they hit.
-const reachMemo = {};
-function reach(id, stack = new Set()) {
-  if (reachMemo[id]) return reachMemo[id];
-  if (stack.has(id)) return new Set();
-  stack.add(id);
-  const out = new Set(direct[id] || []);
-  for (const n of edges[id] || []) for (const o of reach(n, stack)) out.add(o);
-  stack.delete(id);
-  return (reachMemo[id] = out);
+// Upstream reach per node, so service defs can list what they hit. One BFS per node: a shared
+// memo is wrong in a cycle (A -> B -> A would cache B without what A reaches).
+function reach(id) {
+  const out = new Set();
+  const seen = new Set([id]);
+  const queue = [id];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const o of direct[cur] || []) out.add(o);
+    for (const n of edges[cur] || []) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+  }
+  return out;
 }
 for (const id of Object.keys(nodes)) nodes[id].reaches = [...reach(id)];
 
