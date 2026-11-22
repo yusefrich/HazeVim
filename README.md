@@ -8,6 +8,8 @@ This README describes only what this repo adds or changes. For the LazyVim defau
 - Colour scheme: [dracula.nvim](https://github.com/Mofiqul/dracula.nvim)
 - Neovim 0.12 or later is recommended (the BFF tools use `vim.json.encode` with `indent`).
 
+For agent instructions, see [CLAUDE.md](CLAUDE.md). For the glossary, see [CONTEXT.md](CONTEXT.md). For the design decisions, see [docs/adr/](docs/adr/README.md).
+
 ## Command and keymap matrix
 
 | Keys / command | Mode | Purpose | Defined in |
