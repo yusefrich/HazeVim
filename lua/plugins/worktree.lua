@@ -1,13 +1,14 @@
 -- Keymaps for lua/tools/worktree.lua. Attached to the snacks spec so lazy owns the
 -- lazy-loading and no extra plugin is pulled in.
+-- Made here, not in a snacks `init`: lazy keeps only one `init` per plugin, so specs that
+-- share the snacks entry would drop each other's.
+vim.api.nvim_create_user_command("Worktrees", function()
+  require("tools.worktree").browse()
+end, { desc = "Switch git worktree" })
+
 return {
   {
     "folke/snacks.nvim",
-    init = function()
-      vim.api.nvim_create_user_command("Worktrees", function()
-        require("tools.worktree").browse()
-      end, { desc = "Switch git worktree" })
-    end,
     keys = {
       {
         "<leader>gW",

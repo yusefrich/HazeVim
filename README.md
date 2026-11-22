@@ -25,6 +25,16 @@ This README describes only what this repo adds or changes. For the LazyVim defau
 | **Worktrees** | | | |
 | `:Worktrees` / `<leader>gW` | n | Show all git worktrees of the current repo and open the selected one in its own tab. | `lua/tools/worktree.lua` |
 | `<leader>gD` | n | Open a diff of the current worktree against the trunk (`origin/HEAD`, else `origin/main`, else `origin/master`). | `lua/tools/worktree.lua` |
+| **Markdown** | | | |
+| `:Glow` / `<leader>cg` | n | Open the [glow](https://github.com/charmbracelet/glow) start screen full screen. It lists the Markdown files of the current worktree (the git root of the tab cwd). Use `/` to find a file. Needs the `glow` CLI (`brew install glow`). | `lua/tools/glow.lua` |
+| `q` (in the start screen) | t, n | Quit glow and close the window. | `lua/tools/glow.lua` |
+| Mouse wheel (in the start screen) | t, n | Scroll the glow page (3 lines for each step). This works also when `mouse: false` is set in `glow.yml`. The horizontal wheel does nothing there, because glow cannot scroll to the left. | `lua/tools/glow.lua` |
+| `:GlowFile` / `<leader>cG` | n | Show the current buffer, rendered by glow with its colours, in a full-screen Neovim buffer. Lines do not wrap, so `h`/`l`, `zh`/`zl`, `zH`/`zL`, the mouse wheel (vertical and horizontal), `/` and visual copy work as in a normal buffer. This works for files in hidden or git-ignored folders (for example `.planning/`). If the buffer has unsaved changes, the view shows them. | `lua/tools/glow.lua` |
+| `w` (in the file view) | n | Toggle wide mode. In wide mode, glow does not squeeze wide tables and code to the window width. Scroll to the right and left with `l`/`h` or the horizontal wheel. | `lua/tools/glow.lua` |
+| `r` (in the file view) | n | Render the view again. A window resize also renders it again. | `lua/tools/glow.lua` |
+| `q` (in the file view) | n | Close the file view. | `lua/tools/glow.lua` |
+| `:GlowPreview` | n | Open or close a glow preview of the current Markdown file in a split on the right. A save renders the preview again. | `lua/tools/glow.lua` |
+| `q` (in the split preview) | n | Close the preview. | `lua/tools/glow.lua` |
 | **Diff review** | | | |
 | `:ClaudeChanges` / `<leader>gC` | n | Open or close the diffview of the working-tree changes. | `lua/plugins/diffview.lua` |
 | `<leader>e` (in diffview) | n | Show or hide the changed-files panel. | `lua/plugins/diffview.lua` |
@@ -126,6 +136,7 @@ Each worktree opens in its own tab with a tab-local cwd. Thus the LSP and linter
 | File | Change |
 |---|---|
 | `lua/thehazeneer/autoreload.lua` | Reloads a buffer, with no prompt, when an external tool (for example Claude Code in another terminal pane) changes the file. It does not reload a buffer with unsaved changes. Gitsigns then shows the change. |
+| `lua/tools/glow.lua`, `lua/plugins/glow.lua` | Glow for Markdown: a full-screen start screen for each worktree, a full-screen view of the current buffer, and a split preview. The file view parses the ANSI output of glow into highlights in a normal buffer, because the glow pager has no key to scroll to the left (`h` means "back" there). glow uses the `.gitignore` of the first parent folder with a `.git` folder. Thus, for a worktree that its main checkout ignores (for example `.claude/worktrees/<name>`), glow shows 0 files. For such a worktree, the start screen shows a mirror in `~/.cache/nvim/glow/` with hard links to the Markdown files that git shows. In the split preview, the ANSI output of glow goes into a terminal buffer. A save or a window resize renders the preview again. `<leader>cp` (browser preview) and `<leader>um` (render-markdown) from LazyVim stay as they are. |
 | `lua/plugins/diffview.lua` | Diffview with treesitter highlight in the diff buffers and a horizontal two-pane layout. |
 | `lua/plugins/turtle.lua`, `ftplugin/turtle.lua` | Turtle / RDF (`.ttl`) support: the filetype, the language server, and the comment string. |
 | `lua/plugins/treesitter.lua` | Adds the `rust` and `turtle` parsers. |
