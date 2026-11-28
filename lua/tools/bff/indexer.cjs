@@ -296,7 +296,22 @@ const checker = program.getTypeChecker();
 const basePath = project.basePath || "";
 const sourceRes = (project.source || ["src"]).map((s) => (s === "." ? /^/ : globToRegex(s)));
 const excludeRes = (project.exclude || []).map(globToRegex);
-const PRISMA = project.prisma ? abs(project.prisma) + path.sep : null;
+// The Prisma client folder as the program can see it: the configured path, its redirect into a
+// fallback node_modules (bare worktree), and the real path of each (symlinks, preserveSymlinks).
+const PRISMA = project.prisma
+  ? [
+      ...new Set(
+        [abs(project.prisma), redirect(abs(project.prisma))].flatMap((d) => {
+          try {
+            return [d, fs.realpathSync(d)];
+          } catch {
+            return [d];
+          }
+        }),
+      ),
+    ].map((d) => d + path.sep)
+  : null;
+const inPrisma = (f) => !!PRISMA && PRISMA.some((d) => f.startsWith(d));
 const clientRes = (project.clientPackages || []).map(globToRegex);
 
 const isOwnSource = (f) => {
@@ -530,7 +545,7 @@ function link(ownerId, expr, sf) {
     return;
   }
   // `<anything>.<model>.<op>()` whose op is declared by the Prisma client: a DB "upstream".
-  if (PRISMA && file.startsWith(PRISMA) && ts.isPropertyAccessExpression(expr) && ts.isPropertyAccessExpression(expr.expression)) {
+  if (inPrisma(file) && ts.isPropertyAccessExpression(expr) && ts.isPropertyAccessExpression(expr.expression)) {
     const model = expr.expression.name.text;
     const op = expr.name.text;
     if (model.startsWith("$")) return; // $transaction, $queryRaw… — the inner calls carry the model
@@ -604,16 +619,37 @@ function declKey(decl) {
   return `${sf.fileName}:${decl.pos}`;
 }
 
+// Does `fn` return the router declared by `decl`? Only direct returns of that variable count
+// (`return r`, `=> r`), not returns inside nested functions.
+function returnsDecl(fn, decl) {
+  const same = (e) => {
+    while (e && (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isAwaitExpression(e))) e = e.expression;
+    return !!e && ts.isIdentifier(e) && resolve(e) === decl;
+  };
+  if (fn.body && !ts.isBlock(fn.body)) return same(fn.body);
+  let found = false;
+  const walk = (n) => {
+    if (found) return;
+    if (ts.isReturnStatement(n)) found = same(n.expression);
+    else if (!isFunctionLike(n) && !ts.isFunctionDeclaration(n) && !ts.isMethodDeclaration(n)) ts.forEachChild(n, walk);
+  };
+  if (fn.body) ts.forEachChild(fn.body, walk);
+  return found;
+}
+
 // Identity of a router expression: its declaration, plus the function that creates and returns
 // it (so `app.use("/x", makeRouter())` matches the routes registered inside `makeRouter`).
+// A router that the factory makes but does not return (an internal child) keeps only its own key.
 function routerKeys(expr) {
   const decl = resolve(expr);
   if (!decl) return [`text:${expr.getText()}`];
   const keys = [declKey(decl)];
   for (let p = decl.parent; p; p = p.parent) {
     if (ts.isFunctionDeclaration(p) || isFunctionLike(p) || ts.isMethodDeclaration(p)) {
-      const named = isFunctionLike(p) && p.parent && ts.isVariableDeclaration(p.parent) ? p.parent : p;
-      keys.push(declKey(named));
+      if (returnsDecl(p, decl)) {
+        const named = isFunctionLike(p) && p.parent && ts.isVariableDeclaration(p.parent) ? p.parent : p;
+        keys.push(declKey(named));
+      }
       break;
     }
   }
