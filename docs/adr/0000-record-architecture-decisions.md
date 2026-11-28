@@ -14,4 +14,4 @@ Record each decision as a short ADR in `docs/adr/`. Each ADR has a number, a sta
 ## Consequences
 
 - The reasons for the design are in the repo, next to the code.
-- `CLAUDE.md` tells agents to add an ADR for each new decision.
+- `AGENTS.md` tells agents to add an ADR for each new decision.

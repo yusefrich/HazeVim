@@ -5,7 +5,7 @@
 
 ## Context
 
-The index must follow file changes, also changes from other tools (for example Claude Code in another pane). A file-system watcher for each repo is fragile on macOS and costs resources for each worktree.
+The index must follow file changes, also changes from other tools (for example a coding agent in another pane). A file-system watcher for each repo is fragile on macOS and costs resources for each worktree.
 
 ## Decision
 

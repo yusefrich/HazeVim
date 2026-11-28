@@ -8,7 +8,7 @@ This README describes only what this repo adds or changes. For the LazyVim defau
 - Colour scheme: [dracula.nvim](https://github.com/Mofiqul/dracula.nvim)
 - Neovim 0.12 or later is recommended (the BFF tools use `vim.json.encode` with `indent`).
 
-For agent instructions, see [CLAUDE.md](CLAUDE.md). For the glossary, see [CONTEXT.md](CONTEXT.md). For the design decisions, see [docs/adr/](docs/adr/README.md).
+For agent instructions, see [AGENTS.md](AGENTS.md). For the glossary, see [CONTEXT.md](CONTEXT.md). For the design decisions, see [docs/adr/](docs/adr/README.md).
 
 ## Command and keymap matrix
 
@@ -137,7 +137,7 @@ Each worktree opens in its own tab with a tab-local cwd. Thus the LSP and linter
 
 | File | Change |
 |---|---|
-| `lua/thehazeneer/autoreload.lua` | Reloads a buffer, with no prompt, when an external tool (for example Claude Code in another terminal pane) changes the file. It does not reload a buffer with unsaved changes. Gitsigns then shows the change. |
+| `lua/thehazeneer/autoreload.lua` | Reloads a buffer, with no prompt, when an external tool (for example a coding agent in another terminal pane) changes the file. It does not reload a buffer with unsaved changes. Gitsigns then shows the change. |
 | `lua/tools/glow.lua`, `lua/plugins/glow.lua` | Glow for Markdown: a full-screen start screen for each worktree, a full-screen view of the current buffer, and a split preview. The file view parses the ANSI output of glow into highlights in a normal buffer, because the glow pager has no key to scroll to the left (`h` means "back" there). glow uses the `.gitignore` of the first parent folder with a `.git` folder. Thus, for a worktree that its main checkout ignores (for example `.claude/worktrees/<name>`), glow shows 0 files. For such a worktree, the start screen shows a mirror in `~/.cache/nvim/glow/` with hard links to the Markdown files that git shows. In the split preview, the ANSI output of glow goes into a terminal buffer. A save or a window resize renders the preview again. `<leader>cp` (browser preview) and `<leader>um` (render-markdown) from LazyVim stay as they are. |
 | `lua/plugins/diffview.lua` | Diffview with treesitter highlight in the diff buffers and a horizontal two-pane layout. |
 | `lua/plugins/turtle.lua`, `ftplugin/turtle.lua` | Turtle / RDF (`.ttl`) support: the filetype, the language server, and the comment string. |

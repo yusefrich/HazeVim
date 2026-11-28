@@ -12,6 +12,7 @@
 | 0007 | [Each worktree opens in its own tab](0007-worktree-per-tab.md) |
 | 0008 | [Glow views: start screen, mirror, and ANSI-parsed file view](0008-glow-views.md) |
 | 0009 | [Read git paths with -z](0009-git-nul-output.md) |
+| 0010 | [Agent instructions are in AGENTS.md](0010-agent-agnostic-instructions.md) |
 
 ## Template
 
